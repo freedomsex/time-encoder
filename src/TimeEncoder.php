@@ -62,7 +62,7 @@ class TimeEncoder
             $token->permittedFor($audience);
         }
         $token = $token->getToken($signer, new Key($this->secret));
-        return $token;
+        return (string) $token;
     }
 
     public function checkout(string $jwt, ?string $audience = null)
