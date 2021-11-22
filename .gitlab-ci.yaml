@@ -1,0 +1,8 @@
+image: registry.gitlab.com/tebaly/php:7.4.2
+
+tests:
+  stage: tests
+  before_script:
+    - composer install --quiet
+  script:
+    - phpunit --configuration phpunit.xml.dist

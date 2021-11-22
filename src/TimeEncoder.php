@@ -2,12 +2,16 @@
 
 namespace FreedomSex\Services;
 
-use Lcobucci\JWT\Builder;
-use Lcobucci\JWT\Parser;
-use Lcobucci\JWT\ValidationData;
-use Lcobucci\JWT\Signer\Key;
+use Lcobucci\Clock\FrozenClock;
+use Lcobucci\JWT\Token\InvalidTokenStructure;
+use Lcobucci\JWT\Validation\Constraint\PermittedFor;
+use Lcobucci\JWT\Validation\Constraint\SignedWith;
+use Lcobucci\JWT\Validation\Constraint\StrictValidAt;
+use Lcobucci\JWT\Validation\RequiredConstraintsViolated;
 use Lcobucci\JWT\Signer\Hmac\Sha256;
-use InvalidArgumentException;
+
+use Lcobucci\JWT\Configuration;
+use Lcobucci\JWT\Signer\Key\InMemory;
 
 /**
  * Class TimeEncoder
@@ -22,6 +26,30 @@ class TimeEncoder
         $this->timestamp = time();
         $this->expire = $expire ?? self::EXPIRE_TIME;
         $this->secret = $secret ?? getenv('APP_SECRET');
+        $this->setConfiguration($secret);
+    }
+
+    public function setConfiguration(string $secret)
+    {
+        $this->lcobucciJWT = Configuration::forSymmetricSigner(
+            new Sha256(),
+            InMemory::plainText($this->secret)
+        );
+    }
+
+    public function setConstraints(?string $audience = null)
+    {
+        $date = new \DateTimeImmutable();
+        $this->lcobucciJWT->setValidationConstraints(new SignedWith(
+            $this->lcobucciJWT->signer(),
+            $this->lcobucciJWT->signingKey()
+        ));
+        $this->lcobucciJWT->setValidationConstraints(new StrictValidAt(
+            new FrozenClock($date)
+        ));
+        if ($audience) {
+            $this->lcobucciJWT->setValidationConstraints(new PermittedFor($audience));
+        }
     }
 
     public function uuid()
@@ -36,50 +64,56 @@ class TimeEncoder
         return $this;
     }
 
-    public function expire(int $seconds)
+    public function expire(\DateTimeImmutable $date, int $seconds)
     {
-        return $this->timestamp + $seconds + $this->expire;
+        $wait = $seconds + $this->expire;
+        return $date->modify("$wait seconds");
     }
 
-    public function wait(int $seconds)
+    public function wait(\DateTimeImmutable $date, int $seconds)
     {
-        return $this->timestamp + $seconds;
+        return $date->modify("$seconds seconds");
     }
 
-    public function token(int $time, string $action = 'stop-them', ?string $audience = null)
+    public function token(int $seconds, string $action = 'stop-them', ?string $audience = null)
     {
-        $builder = new Builder();
-        $signer = new Sha256();
-
-        $token = $builder
-            ->issuedAt($this->timestamp)
-            ->canOnlyBeUsedAfter($this->wait($time))
-            ->expiresAt($this->expire($time))
+        $date = new \DateTimeImmutable();
+        $token = $this->lcobucciJWT->builder()
+            ->issuedAt($date)
+            ->canOnlyBeUsedAfter($this->wait($date, $seconds))
+            ->expiresAt($this->expire($date, $seconds))
             ->withClaim('uid', $this->uuid())
-            ->withClaim('time', $time)
+            ->withClaim('time', $seconds)
             ->withClaim('action', $action);
         if ($audience) {
             $token->permittedFor($audience);
         }
-        $token = $token->getToken($signer, new Key($this->secret));
-        return (string) $token;
+        $token = $token->getToken(
+            $this->lcobucciJWT->signer(),
+            $this->lcobucciJWT->signingKey()
+        );
+        return $token->toString();
+    }
+
+    public function parse(string $jwt)
+    {
+        try {
+            $token = $this->lcobucciJWT->parser()->parse($jwt);
+        } catch (InvalidTokenStructure $e) {
+            return false;
+        }
+        return $token;
     }
 
     public function checkout(string $jwt, ?string $audience = null)
     {
-        $parser = new Parser();
-        $signer = new Sha256();
-        $key = new Key($this->secret);
-        $data = new ValidationData();
-        if ($audience) {
-            $data->setAudience($audience);
-        }
+        $token = $this->parse($jwt);
+        $this->setConstraints($audience);
+        $constraints = $this->lcobucciJWT->validationConstraints();
         try {
-            $token = $parser->parse($jwt);
-        } catch (InvalidArgumentException $e) {
-            return false;
-        }
-        if (!$token->verify($signer, $key) or !$token->validate($data)) {
+            $this->lcobucciJWT->validator()->assert($token, ...$constraints);
+            $this->lcobucciJWT->validator()->validate($token, ...$constraints);
+        } catch (RequiredConstraintsViolated $e) {
             return false;
         }
         return true;
