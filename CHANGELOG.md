@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.0](https://gitlab.com/freedomsex/time-encoder/compare/v1.0.1...v1.1.0) (2021-11-22)
+
+
+### Features
+
+* upd jwt lib ([37c4afa](https://gitlab.com/freedomsex/time-encoder/commit/37c4afa9816f1ddd7d6c51dfe4f9f340f29deb35))
+
 ### [1.0.1](https://github.com/freedomsex/time-encoder/compare/v1.0.0...v1.0.1) (2020-10-03)
 
 
